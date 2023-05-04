@@ -7,7 +7,8 @@
 install.packages("pacman")
 library(pacman)
 
-# 1. DATA COLLECTION AND PREPROCESSING
+
+# 1. DATA COLLECTIOM AMD PREPROCESSING ------------------------------------
 # 1a. Load Packages
 p_load(tidyverse, tidyquant)
 
@@ -55,5 +56,7 @@ k100plot1 <- kompas100 %>%
   xlab("Year") +
   ylab("Price") +
   ggtitle("KOMPAS100 Index Price") +
-  theme_minimal()
-k100plot1
+  theme_light()
+
+ggsave(k100plot1, file = "image/Plot 1 - KOMPAS100 Index Prices 2012-2022.png", 
+       width = 1600, height = 1200, units = "px", dpi = 150)
