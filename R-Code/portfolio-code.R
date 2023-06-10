@@ -14,7 +14,8 @@ p_load(dplyr, tidyverse, stats,
        mgcv, cluster, magrittr, tidyquant,
        quantmod, PerformanceAnalytics,
        zoo, lubridate, factoextra, kableExtra,
-       patchwork, gridExtra, ggplot2, xtable, ggpubr)
+       patchwork, gridExtra, ggplot2, xtable, ggpubr,
+       tseries, grid)
 
 
 # #### 1. DATA COLLECTION AND PREPROCESSING #### #------------------------------------
@@ -24,12 +25,20 @@ datalink <- ""
 kompasdata <- read.csv('data/kompas100list.csv', sep=';')
 kompasdata$Kode <- paste(kompasdata$Kode, '.JK', sep='') # All of Indonesian stocks symbols end with ".JK"
 
+
 # 1b. Get the stock prices from Yahoo! Finance
 startdate <- as.Date('2012-01-01')
 enddate <- as.Date('2022-12-31')
 kompas <- as.data.frame(tq_get(kompasdata$Kode,
                  from = startdate,
                  to = enddate))
+# KOMPAS100 Index Prices for evaluation purposes
+k100index <- read.csv('data/IDXKOMPAS100.csv', sep = ",")
+k100index$date <- strptime(k100index$Date, "%m/%d/%Y")
+k100index$date <- as.Date(k100index$date)
+k100index <- k100index %>%
+  select(date, Price) %>%
+  arrange(date, Price)
 
 kompas$date <- as.character(kompas$date) 
 print(xtable(head(kompas)), type = "latex") # export R Table to Latex
@@ -753,7 +762,7 @@ ggsave(figcol7, file = "image/Plot 13 - Recognised Cluster (Scaled Data).png",
 
 
 # ###### 4. PORTFOLIO SELECTION  #######--------------------------------------------------
-
+# Calculate Return from each cluster
 km.sc1 <- kompas100p %>%
   pivot_longer(cols = 2:ncol(kompas100p),
                names_to = "symbol",
@@ -772,7 +781,9 @@ km.sc2 <- kompas100p %>%
   arrange(symbol, date) %>% 
   filter(symbol %in% cl_raw_sc$symbol[cl_raw_sc$cluster==2]) %>%
   pivot_wider(id_cols = date, names_from = symbol, values_from = price) %>%
-  column_to_rownames(var = "date")
+  column_to_rownames(var = "date") %>%
+  Return.calculate() %>%
+  slice(-1)
 
 km.spline1 <- kompas100p %>%
   pivot_longer(cols = 2:ncol(kompas100p),
@@ -781,7 +792,9 @@ km.spline1 <- kompas100p %>%
   arrange(symbol, date) %>% 
   filter(symbol %in% cl_spline_sc$symbol[cl_spline_sc$cluster==2]) %>%
   pivot_wider(id_cols = date, names_from = symbol, values_from = price) %>%
-  column_to_rownames(var = "date")
+  column_to_rownames(var = "date") %>%
+  Return.calculate() %>%
+  slice(-1)
 
 km.spline2 <- kompas100p %>%
   pivot_longer(cols = 2:ncol(kompas100p),
@@ -790,7 +803,9 @@ km.spline2 <- kompas100p %>%
   arrange(symbol, date) %>% 
   filter(symbol %in% cl_spline_sc$symbol[cl_spline_sc$cluster==1]) %>%
   pivot_wider(id_cols = date, names_from = symbol, values_from = price) %>%
-  column_to_rownames(var = "date")
+  column_to_rownames(var = "date") %>%
+  Return.calculate() %>%
+  slice(-1)
 
 hc.sc1 <- kompas100p %>%
   pivot_longer(cols = 2:ncol(kompas100p),
@@ -799,7 +814,9 @@ hc.sc1 <- kompas100p %>%
   arrange(symbol, date) %>% 
   filter(symbol %in% hcl_raw_sc$symbol[hcl_raw_sc$cluster==1]) %>%
   pivot_wider(id_cols = date, names_from = symbol, values_from = price) %>%
-  column_to_rownames(var = "date")
+  column_to_rownames(var = "date") %>%
+  Return.calculate() %>%
+  slice(-1)
 
 hc.sc2 <- kompas100p %>%
   pivot_longer(cols = 2:ncol(kompas100p),
@@ -808,7 +825,9 @@ hc.sc2 <- kompas100p %>%
   arrange(symbol, date) %>% 
   filter(symbol %in% hcl_raw_sc$symbol[hcl_raw_sc$cluster==2]) %>%
   pivot_wider(id_cols = date, names_from = symbol, values_from = price) %>%
-  column_to_rownames(var = "date")
+  column_to_rownames(var = "date") %>%
+  Return.calculate() %>%
+  slice(-1)
 
 hc.spline1 <- kompas100p %>%
   pivot_longer(cols = 2:ncol(kompas100p),
@@ -817,7 +836,9 @@ hc.spline1 <- kompas100p %>%
   arrange(symbol, date) %>% 
   filter(symbol %in% hcl_spline_sc$symbol[hcl_spline_sc$cluster==1]) %>%
   pivot_wider(id_cols = date, names_from = symbol, values_from = price) %>%
-  column_to_rownames(var = "date")
+  column_to_rownames(var = "date") %>%
+  Return.calculate() %>%
+  slice(-1)
 
 hc.spline2 <- kompas100p %>%
   pivot_longer(cols = 2:ncol(kompas100p),
@@ -826,8 +847,527 @@ hc.spline2 <- kompas100p %>%
   arrange(symbol, date) %>% 
   filter(symbol %in% hcl_spline_sc$symbol[hcl_spline_sc$cluster==2]) %>%
   pivot_wider(id_cols = date, names_from = symbol, values_from = price) %>%
-  column_to_rownames(var = "date")
+  column_to_rownames(var = "date") %>%
+  Return.calculate() %>%
+  slice(-1)
 
-# Calculate Return from each cluster
-ew <- 
-Return.portfolio(R = km.sc1, weights = )
+# ###### Select 10 stocks from each portfolios ###### #
+# (https://www.youtube.com/watch?v=2EpIdnA0pPo) #
+# Set KOMPAS100 Index as Benchmark
+k100index_xts <- xts(k100index[,-1], order.by = k100index$date)
+k100index_ret <- Return.calculate(k100index_xts)
+k100index_pf <- Return.portfolio(k100index_ret[-1,])
+k100index_pf_ <- Return.portfolio(k100index_ret[-1,], rebalance_on = "years",wealth.index = TRUE)
+
+# #### Portfolio 1 #### #
+sh1 <- SharpeRatio.annualized(xts(km.sc1, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+pf1 <- km.sc1 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh1$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF1 MV weighting --- #
+pf1 <- xts(pf1[-1], order.by = as.Date(kompas100p$date[-1]))
+pf1_mv <- portfolio.optim(pf1)$pw
+names(pf1_mv) <- colnames(as.data.frame(pf1))
+# Calculate MV Portfolio Return
+pf1_mv_ret <- Return.portfolio(pf1, weights = pf1_mv)
+pf1_mv_ret_ <- Return.portfolio(pf1, weights = pf1_mv, 
+                                wealth.index = TRUE)
+
+# --- PF1 EW Weighting --- #
+pf1_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf1_ew) <- colnames(as.data.frame(pf1))
+# Calculate MV Portfolio Return
+pf1_ew_ret <- Return.portfolio(pf1, weights = pf1_ew)
+pf1_ew_ret_ <- Return.portfolio(pf1, weights = pf1_ew, 
+                                wealth.index = TRUE)
+
+# Plot - PF1 Return
+plot(pf1_mv_ret, col = "#A89F68", main = "")
+lines(pf1_ew_ret, col = "#F5C396")
+# Plot - PF1 Wealth Index
+plot(pf1_mv_ret_, col = "#A89F68", main = "Portfolio Wealth Index - PF1", lwd = 2)
+lines(pf1_ew_ret_, col = "#F5C396" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topleft", c("PF1 MV", "PF1 EW", "KOMPAS100"),
+       col = c("#A89F68", "#F5C396", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf1_mv, pf1_ew))), type = "latex")
+
+
+# #### Portfolio 2 #### #
+sh2 <- SharpeRatio.annualized(xts(km.sc2, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+pf2 <- km.sc2 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh2$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF2 MV weighting --- #
+pf2 <- xts(pf2[-1], order.by = as.Date(kompas100p$date[-1]))
+pf2_mv <- portfolio.optim(pf2)$pw
+names(pf2_mv) <- colnames(as.data.frame(pf2))
+
+# Calculate MV Portfolio Return
+pf2_mv_ret <- Return.portfolio(pf2, weights = pf2_mv)
+pf2_mv_ret_ <- Return.portfolio(pf2, weights = pf2_mv, 
+                                wealth.index = TRUE)
+
+
+
+# --- PF2 EW Weighting --- #
+pf2_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf2_ew) <- colnames(as.data.frame(pf2))
+print(xtable(as.data.frame(t(pf2_ew))), type = "latex")
+# Calculate MV Portfolio Return
+pf2_ew_ret <- Return.portfolio(pf2, weights = pf2_ew)
+pf2_ew_ret_ <- Return.portfolio(pf2, weights = pf2_ew, 
+                                wealth.index = TRUE)
+# Plot - PF2 Wealth Index
+plot(pf2_mv_ret_, col = "#EE4266", main = "Portfolio Wealth Index - PF2", lwd = 2)
+lines(pf2_ew_ret_, col = "#3CBBB1" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topright", c("PF2 MV", "PF2 EW", "KOMPAS100"),
+          col = c("#EE4266", "#3CBBB1", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf2_mv, pf2_ew))), type = "latex")
+
+# #### Portfolio 3 #### #
+sh3 <- SharpeRatio.annualized(xts(km.spline1, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+
+pf3 <- km.spline1 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh3$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF3 MV weighting --- #
+pf3 <- xts(pf3[-1], order.by = as.Date(kompas100p$date[-1]))
+pf3_mv <- portfolio.optim(pf3)$pw
+names(pf3_mv) <- colnames(as.data.frame(pf3))
+print(xtable(as.data.frame(t(pf3_mv))), type = "latex")
+# Calculate MV Portfolio Return
+pf3_mv_ret <- Return.portfolio(pf3, weights = pf3_mv)
+pf3_mv_ret_ <- Return.portfolio(pf3, weights = pf3_mv, 
+                                wealth.index = TRUE)
+# Compare MV with KOMPAS100 Index 
+lines(pf3_mv_ret_, col = "#BB55DD", legend.loc = "topleft")
+lines(k100index_pf_, col = "#555500", main = "KOMPAS100 Index")
+
+# --- PF3 EW Weighting --- #
+pf3_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf3_ew) <- colnames(as.data.frame(pf3))
+print(xtable(as.data.frame(t(pf3_ew))), type = "latex")
+# Calculate MV Portfolio Return
+pf3_ew_ret <- Return.portfolio(pf3, weights = pf3_ew)
+pf3_ew_ret_ <- Return.portfolio(pf3, weights = pf3_ew, 
+                                wealth.index = TRUE)
+# Plot - PF3 Wealth Index
+plot(pf3_mv_ret_, col = "#881600", main = "Portfolio Wealth Index - PF3", lwd = 2)
+lines(pf3_ew_ret_, col = "#E3E36A" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topleft", c("PF3 MV", "PF3 EW", "KOMPAS100"),
+          col = c("#881600", "#E3E36A", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf3_mv, pf3_ew))), type = "latex")
+
+# #### Portfolio 4 #### #
+sh4 <- SharpeRatio.annualized(xts(km.spline2, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+pf4 <- km.spline2 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh4$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF4 MV weighting --- #
+pf4 <- xts(pf4[-1], order.by = as.Date(kompas100p$date[-1]))
+pf4_mv <- portfolio.optim(pf4)$pw
+names(pf4_mv) <- colnames(as.data.frame(pf4))
+print(xtable(as.data.frame(t(pf4_mv))), type = "latex")
+# Calculate MV Portfolio Return
+pf4_mv_ret <- Return.portfolio(pf4, weights = pf4_mv)
+pf4_mv_ret_ <- Return.portfolio(pf4, weights = pf4_mv, 
+                                wealth.index = TRUE)
+
+# --- PF4 EW Weighting --- #
+pf4_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf4_ew) <- colnames(as.data.frame(pf4))
+print(xtable(as.data.frame(t(pf4_ew))), type = "latex")
+# Calculate MV Portfolio Return
+pf4_ew_ret <- Return.portfolio(pf4, weights = pf4_ew)
+pf4_ew_ret_ <- Return.portfolio(pf4, weights = pf4_ew, 
+                                wealth.index = TRUE)
+
+# Plot - PF4 Wealth Index
+plot(pf4_mv_ret_, col = "#32936F", main = "Portfolio Wealth Index - PF4", lwd = 2)
+lines(pf4_ew_ret_, col = "#E83F6F" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topleft", c("PF4 MV", "PF4 EW", "KOMPAS100"),
+          col = c("#32936F", "#E83F6F", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf4_mv, pf4_ew))), type = "latex")
+
+
+# #### Portfolio 5 #### #
+sh5 <- SharpeRatio.annualized(xts(hc.sc1, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+pf5 <- hc.sc1 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh5$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF5 MV weighting --- #
+pf5 <- xts(pf5[-1], order.by = as.Date(kompas100p$date[-1]))
+pf5_mv <- portfolio.optim(pf5)$pw
+names(pf5_mv) <- colnames(as.data.frame(pf5))
+print(xtable(as.data.frame(t(pf5_mv))), type = "latex")
+# Calculate MV Portfolio Return
+pf5_mv_ret <- Return.portfolio(pf5, weights = pf5_mv)
+pf5_mv_ret_ <- Return.portfolio(pf5, weights = pf5_mv, 
+                                wealth.index = TRUE)
+
+# --- PF5 EW Weighting --- #
+pf5_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf5_ew) <- colnames(as.data.frame(pf5))
+print(xtable(as.data.frame(t(pf5_ew))), type = "latex")
+# Calculate MV Portfolio Return
+pf5_ew_ret <- Return.portfolio(pf5, weights = pf5_ew)
+pf5_ew_ret_ <- Return.portfolio(pf5, weights = pf5_ew, 
+                                wealth.index = TRUE)
+
+# Plot - PF5 Wealth Index
+plot(pf5_mv_ret_, col = "#EF233C", main = "Portfolio Wealth Index - PF5", lwd = 2)
+lines(pf5_ew_ret_, col = "#8D99AE" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topright", c("PF5 MV", "PF5 EW", "KOMPAS100"),
+          col = c("#EF233C", "#8D99AE", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf5_mv, pf5_ew))), type = "latex")
+
+# #### Portfolio 6 #### # (Same as Portfolio 1)
+sh6 <- SharpeRatio.annualized(xts(hc.sc2, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+pf6 <- hc.sc2 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh6$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF6 MV weighting --- #
+pf6 <- xts(pf6[-1], order.by = as.Date(kompas100p$date[-1]))
+pf6_mv <- portfolio.optim(pf6)$pw
+names(pf6_mv) <- colnames(as.data.frame(pf6))
+print(xtable(as.data.frame(t(pf6_mv))), type = "latex")
+# Calculate MV Portfolio Return
+pf6_mv_ret <- Return.portfolio(pf6, weights = pf6_mv)
+pf6_mv_ret_ <- Return.portfolio(pf6, weights = pf6_mv, 
+                                wealth.index = TRUE)
+# Compare MV with KOMPAS100 Index 
+lines(pf6_mv_ret_, col = "#FF22BB", legend.loc = "topleft")
+lines(k100index_pf_, col = "#555500", main = "KOMPAS100 Index")
+
+# --- PF6 EW Weighting --- #
+pf6_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf6_ew) <- colnames(as.data.frame(pf6))
+print(xtable(as.data.frame(t(pf6_ew))), type = "latex")
+# Calculate MV Portfolio Return
+pf6_ew_ret <- Return.portfolio(pf6, weights = pf6_ew)
+pf6_ew_ret_ <- Return.portfolio(pf6, weights = pf6_ew, 
+                                wealth.index = TRUE)
+# Plot - PF6 Wealth Index
+plot(pf6_mv_ret_, col = "#FF22BB", main = "Portfolio Wealth Index - PF6", lwd = 2)
+lines(pf6_ew_ret_, col = "#555500" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topleft", c("PF6 MV", "PF6 EW", "KOMPAS100"),
+          col = c("#FF22BB", "#555500", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf5_mv, pf5_ew))), type = "latex")
+
+
+# #### Portfolio 7 #### #
+sh7 <- SharpeRatio.annualized(xts(hc.spline1, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+pf7 <- hc.spline1 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh7$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF7 MV weighting --- #
+pf7 <- xts(pf7[-1], order.by = as.Date(kompas100p$date[-1]))
+pf7_mv <- portfolio.optim(pf7)$pw
+names(pf7_mv) <- colnames(as.data.frame(pf7))
+print(xtable(as.data.frame(t(pf7_mv))), type = "latex")
+# Calculate MV Portfolio Return
+pf7_mv_ret <- Return.portfolio(pf7, weights = pf7_mv)
+pf7_mv_ret_ <- Return.portfolio(pf7, weights = pf7_mv, 
+                                wealth.index = TRUE)
+# Compare MV with KOMPAS100 Index 
+lines(pf7_mv_ret_, col = "#222200", legend.loc = "topleft")
+lines(k100index_pf_, col = "#555500", main = "KOMPAS100 Index")
+
+# --- PF7 EW Weighting --- #
+pf7_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf7_ew) <- colnames(as.data.frame(pf7))
+print(xtable(as.data.frame(t(pf7_ew))), type = "latex")
+# Calculate MV Portfolio Return
+pf7_ew_ret <- Return.portfolio(pf7, weights = pf7_ew)
+pf7_ew_ret_ <- Return.portfolio(pf7, weights = pf7_ew, 
+                                wealth.index = TRUE)
+# Plot - PF7 Wealth Index
+plot(pf7_mv_ret_, col = "#87BBA2", main = "Portfolio Wealth Index - PF7", lwd = 2)
+lines(pf7_ew_ret_, col = "#F0A868" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topleft", c("PF7 MV", "PF7 EW", "KOMPAS100"),
+          col = c("#87BBA2", "#F0A868", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf7_mv, pf7_ew))), type = "latex")
+
+# #### Portfolio 8 #### #
+sh8 <- SharpeRatio.annualized(xts(hc.spline2, order.by = kompas100p$date[-1])) %>%
+  as.data.frame() %>%
+  pivot_longer(cols = 1:ncol(.),
+               names_to = "symbol",
+               values_to = "sharpe") %>%
+  arrange(desc(sharpe)) %>% head(10)
+
+pf8 <- hc.spline2 %>%
+  rownames_to_column(var = "date") %>%
+  pivot_longer(cols = 2:ncol(.),
+               names_to = "symbol",
+               values_to = "return") %>%
+  arrange(symbol) %>%
+  filter(symbol %in% sh8$symbol) %>%
+  pivot_wider(names_from = symbol, values_from = return)
+
+# --- PF8 MV weighting --- #
+pf8 <- xts(pf8[-1], order.by = as.Date(kompas100p$date[-1]))
+pf8_mv <- portfolio.optim(pf8)$pw
+names(pf8_mv) <- colnames(as.data.frame(pf8))
+print(xtable(as.data.frame(t(pf8_mv))), type = "latex")
+# Calculate MV Portfolio Return
+pf8_mv_ret <- Return.portfolio(pf8, weights = pf8_mv)
+pf8_mv_ret_ <- Return.portfolio(pf8, weights = pf8_mv, 
+                                wealth.index = TRUE)
+# Compare MV with KOMPAS100 Index 
+lines(pf8_mv_ret_, col = "#00BcFF", legend.loc = "topleft")
+lines(k100index_pf_, col = "#555500", main = "KOMPAS100 Index")
+
+# --- PF8 EW Weighting --- #
+pf8_ew <- c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1)
+names(pf8_ew) <- colnames(as.data.frame(pf8))
+print(xtable(as.data.frame(t(pf8_ew))), type = "latex")
+# Calculate MV Portfolio Return
+pf8_ew_ret <- Return.portfolio(pf8, weights = pf8_ew)
+pf8_ew_ret_ <- Return.portfolio(pf8, weights = pf8_ew, 
+                                wealth.index = TRUE)
+# Plot - PF7 Wealth Index
+plot(pf8_mv_ret_, col = "#F34213", main = "Portfolio Wealth Index - PF8", lwd = 2)
+lines(pf8_ew_ret_, col = "#48A9A6" , lwd= 2)
+lines(k100index_pf_, col = "#000000", lwd = 2)
+addLegend("topleft", c("PF8 MV", "PF8 EW", "KOMPAS100"),
+          col = c("#F34213", "#48A9A6", "#000000"), lty = 1, bty="o", lwd = 2)
+
+# Latex Table
+print(xtable(as.data.frame(cbind(pf8_mv, pf8_ew))), type = "latex")
+
+## ### Performance Comparison ### ##
+# Create function for performance table #
+# (https://www.youtube.com/watch?v=2EpIdnA0pPo) #
+perf_table <- function(pfreturn, indexreturn, rfrate) {
+  perf_table <- Return.cumulative(pfreturn)
+  perf_table <- rbind(perf_table, Return.annualized(pfreturn, scale = 252))
+  perf_table <- rbind(perf_table, StdDev.annualized(pfreturn, scale = 252))
+  perf_table <- rbind(perf_table, SharpeRatio.annualized(pfreturn, Rf = rfrate))
+  perf_table <- rbind(perf_table, maxDrawdown(pfreturn))
+  perf_table <- rbind(perf_table, CAPM.beta(pfreturn, indexreturn, Rf = rfrate))
+  rownames(perf_table) <- c("TotalReturn", "Return_Ann", "Volatility_Ann", "SharpeRatio_Ann", "MaxDD", "Beta")
+  perf_table <- t(perf_table)
+  return(perf_table)
+}
+
+# Performance Table of All Portfolios
+pf1_mv_perf <- perf_table(pf1_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF1 MV"))
+
+pf1_ew_perf <- perf_table(pf1_ew_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF1 EW"))
+
+pf2_mv_perf <- perf_table(pf2_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF2 MV"))
+
+pf2_ew_perf <- perf_table(pf2_ew_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF2 EW"))
+
+pf3_mv_perf <- perf_table(pf3_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF3 MV"))
+
+pf3_ew_perf <- perf_table(pf3_ew_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF3 EW"))
+
+pf4_mv_perf <- perf_table(pf4_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF4 MV"))
+
+pf4_ew_perf <- perf_table(pf4_ew_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF4 EW"))
+
+pf5_mv_perf <- perf_table(pf5_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF5 MV"))
+
+pf5_ew_perf <- perf_table(pf5_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF5 EW"))
+
+pf6_mv_perf <- perf_table(pf6_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF6 MV"))
+
+pf6_ew_perf <- perf_table(pf6_ew_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF6 EW"))
+
+pf7_mv_perf <- perf_table(pf7_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF7 MV"))
+
+pf7_ew_perf <- perf_table(pf7_ew_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF7 EW"))
+
+pf8_mv_perf <- perf_table(pf8_mv_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF8 MV"))
+
+pf8_ew_perf <- perf_table(pf8_ew_ret, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "PF8 EW"))
+
+k100index_perf <- perf_table(k100index_pf, k100index_pf, rfrate = 0) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Portfolio") %>%
+  mutate(Portfolio = str_replace(Portfolio, "portfolio.returns", "KOMPAS100"))
+
+AllPerf <- rbind(pf1_mv_perf,pf1_ew_perf,pf2_mv_perf,pf2_ew_perf,pf3_mv_perf,
+                 pf3_ew_perf,pf4_mv_perf,pf4_ew_perf,pf5_mv_perf,pf5_ew_perf,
+                 pf6_mv_perf,pf6_ew_perf,pf7_mv_perf,pf7_ew_perf,pf8_mv_perf,
+                 pf8_ew_perf,k100index_perf)
+print(xtable(AllPerf), type = "latex")
+
+pf1perf <- rbind(pf1_mv_perf, pf1_ew_perf, k100index_perf)
+print(xtable(pf1perf), type = "latex")
+
+pf2perf <- rbind(pf2_mv_perf, pf2_ew_perf, k100index_perf)
+print(xtable(pf2perf), type = "latex")
+
+pf3perf <- rbind(pf3_mv_perf, pf3_ew_perf, k100index_perf)
+print(xtable(pf3perf), type = "latex")
+
+pf4perf <- rbind(pf4_mv_perf, pf4_ew_perf, k100index_perf)
+print(xtable(pf4perf), type = "latex")
+
+pf5perf <- rbind(pf5_mv_perf, pf5_ew_perf, k100index_perf)
+print(xtable(pf5perf), type = "latex")
+
+pf6perf <- rbind(pf6_mv_perf, pf6_ew_perf, k100index_perf)
+print(xtable(pf6perf), type = "latex")
+
+pf7perf <- rbind(pf7_mv_perf, pf7_ew_perf, k100index_perf)
+print(xtable(pf7perf), type = "latex")
+
+pf8perf <- rbind(pf8_mv_perf, pf8_ew_perf, k100index_perf)
+print(xtable(pf8perf), type = "latex")
